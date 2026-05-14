@@ -267,6 +267,7 @@ function clearTheme(theme) {
 
 // ─────────────────────────────────────────────
 // API  (proxied through /api/fmp — key stays server-side)
+// New FMP stable API: /stable/* with ?symbol= query params
 // ─────────────────────────────────────────────
 async function apiFetch(url) {
   const r = await fetch(url);
@@ -279,7 +280,7 @@ async function apiFetch(url) {
 async function getQuotes(tickers) {
   const ck = 'q_' + currentTheme;
   const hit = cGet(ck); if (hit) return hit;
-  const data = await apiFetch(`/api/fmp?path=quote/${tickers.join(',')}`);
+  const data = await apiFetch(`/api/fmp?path=batch-quote&symbols=${tickers.join(',')}`);
   const map = {};
   (Array.isArray(data) ? data : []).forEach(q => { map[q.symbol] = q; });
   cSet(ck, map);
@@ -289,15 +290,16 @@ async function getQuotes(tickers) {
 async function getKeyMetrics(ticker) {
   const ck = 'km_' + ticker;
   const hit = cGet(ck); if (hit) return hit;
-  const data = await apiFetch(`/api/fmp?path=key-metrics/${ticker}&limit=2&period=annual`);
-  const r = Array.isArray(data) ? data : [];
+  // TTM metrics (roicTTM, freeCashFlowPerShareTTM, netDebtToEBITDATTM, peRatioTTM)
+  const data = await apiFetch(`/api/fmp?path=key-metrics-ttm&symbol=${ticker}`);
+  const r = Array.isArray(data) ? data : (data ? [data] : []);
   cSet(ck, r); return r;
 }
 
 async function getIncome(ticker) {
   const ck = 'is_' + ticker;
   const hit = cGet(ck); if (hit) return hit;
-  const data = await apiFetch(`/api/fmp?path=income-statement/${ticker}&limit=2&period=annual`);
+  const data = await apiFetch(`/api/fmp?path=income-statement&symbol=${ticker}&period=annual&limit=2`);
   const r = Array.isArray(data) ? data : [];
   cSet(ck, r); return r;
 }
@@ -326,20 +328,26 @@ async function loadTheme(theme, force) {
       [km, is] = await Promise.all([getKeyMetrics(tk), getIncome(tk)]);
     } catch (_) {}
 
-    const km0 = km[0] || {}, km1 = km[1] || {};
+    const km0 = km[0] || {};
     const is0 = is[0] || {}, is1 = is[1] || {};
 
     const rev0 = is0.revenue || 0, rev1 = is1.revenue || 0;
     const revenueGrowth = rev1 > 0 ? (rev0 - rev1) / rev1 : null;
-    const roic          = km0.roic   != null ? km0.roic   : null;
-    const fcfPS         = km0.freeCashFlowPerShare != null ? km0.freeCashFlowPerShare : null;
-    const netDebt       = km0.netDebtToEBITDA != null ? km0.netDebtToEBITDA : null;
-    const price         = q.price    || 0;
-    const yearHigh      = q.yearHigh || 0;
-    const discount52w   = yearHigh > 0 ? (yearHigh - price) / yearHigh : null;
-    const trailingPE    = q.pe != null ? q.pe : null;
-    const histPE        = km1.peRatio || km0.peRatio || null;
-    const fwdPEOK       = (trailingPE != null && histPE != null) ? trailingPE < histPE : null;
+
+    // New stable API uses TTM suffix on key-metrics fields
+    const roic    = km0.roicTTM                  ?? km0.roic                  ?? null;
+    const fcfPS   = km0.freeCashFlowPerShareTTM   ?? km0.freeCashFlowPerShare   ?? null;
+    const netDebt = km0.netDebtToEBITDATTM        ?? km0.netDebtToEBITDA        ?? null;
+    const kmPE    = km0.peRatioTTM                ?? km0.peRatio                ?? null;
+
+    const price       = q.price    || 0;
+    const yearHigh    = q.yearHigh || q['52WeekHigh'] || 0;
+    const discount52w = yearHigh > 0 ? (yearHigh - price) / yearHigh : null;
+    const trailingPE  = q.pe ?? q.priceEarningsRatio ?? null;
+    // Gate: current PE lower than key-metrics TTM PE would be same data;
+    // use PE < 30 as a reasonable "not stretched" proxy when historical not available
+    const histPE  = null;
+    const fwdPEOK = (trailingPE != null) ? trailingPE < 30 : null;
 
     stocks.push({
       ticker: tk, name: q.name || tk, desc: descs[tk] || '',

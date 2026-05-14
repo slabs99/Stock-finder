@@ -15,8 +15,8 @@ module.exports = async function handler(req, res) {
   }
 
   const qs = new URLSearchParams({ ...params, apikey: apiKey }).toString();
-  const url = `https://financialmodelingprep.com/api/v3/${path}?${qs}`;
-  console.log('[fmp] fetching:', `https://financialmodelingprep.com/api/v3/${path}?${new URLSearchParams(params).toString()}`);
+  const url = `https://financialmodelingprep.com/stable/${path}?${qs}`;
+  console.log('[fmp] GET', `https://financialmodelingprep.com/stable/${path}?${new URLSearchParams(params).toString()}`);
 
   try {
     const data = await new Promise((resolve, reject) => {
@@ -30,7 +30,7 @@ module.exports = async function handler(req, res) {
       }).on('error', reject);
     });
 
-    console.log('[fmp] response status:', data.status);
+    console.log('[fmp] status:', data.status, 'path:', path);
     res.setHeader('Cache-Control', 's-maxage=1200, stale-while-revalidate=600');
     res.status(data.status).json(data.json);
   } catch (e) {
