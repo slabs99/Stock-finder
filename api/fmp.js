@@ -1,4 +1,8 @@
-export default async function handler(req, res) {
+const https = require('https');
+
+module.exports = async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+
   const apiKey = process.env.FMP_API_KEY;
   if (!apiKey) {
     return res.status(500).json({ 'Error Message': 'FMP_API_KEY environment variable is not set in Vercel.' });
@@ -13,11 +17,20 @@ export default async function handler(req, res) {
   const url = `https://financialmodelingprep.com/api/v3/${path}?${qs}`;
 
   try {
-    const upstream = await fetch(url);
-    const data = await upstream.json();
+    const data = await new Promise((resolve, reject) => {
+      https.get(url, (upstream) => {
+        let body = '';
+        upstream.on('data', chunk => { body += chunk; });
+        upstream.on('end', () => {
+          try { resolve({ status: upstream.statusCode, json: JSON.parse(body) }); }
+          catch (e) { reject(new Error('Invalid JSON from FMP: ' + body.slice(0, 200))); }
+        });
+      }).on('error', reject);
+    });
+
     res.setHeader('Cache-Control', 's-maxage=1200, stale-while-revalidate=600');
-    res.status(upstream.status).json(data);
+    res.status(data.status).json(data.json);
   } catch (e) {
     res.status(502).json({ 'Error Message': e.message });
   }
-}
+};

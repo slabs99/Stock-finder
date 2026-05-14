@@ -543,7 +543,7 @@ async function doRefresh(force = true) {
     renderThesis(stocks, currentTheme);
     setStatus(`Updated ${new Date().toLocaleTimeString()} · ${stocks.length} stocks · ${currentTheme}`);
   } catch (e) {
-    setError('Error: ' + e.message + ' — check your API key, or the free tier may be rate-limited (250 req/day).');
+    setError('Error: ' + e.message + ' — If this is your first deploy after adding the env var, go to Vercel → Deployments → Redeploy.');
     setStatus('Failed to load');
   } finally {
     setProgress(-1);
