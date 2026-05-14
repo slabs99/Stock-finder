@@ -115,14 +115,9 @@ tbody td{padding:9px 11px;font-size:13px;vertical-align:middle}
 <header>
   <div class="hrow">
     <h1>&#x1F4C8; Stock Finder</h1>
-    <div class="api-wrap">
-      <input type="password" id="apiKey" placeholder="Enter FMP API key..." autocomplete="off">
-      <button class="btn-save" onclick="saveKey()">Save</button>
-    </div>
-    <span class="api-hint">Free key at <a href="https://financialmodelingprep.com/developer/docs/" target="_blank">financialmodelingprep.com</a> &mdash; 250 req/day</span>
   </div>
   <div class="theme-row" id="themeRow"></div>
-  <div class="ctrl-row">
+  <div class="ctrl-row" style="margin-top:0">
     <button class="refresh-btn" id="refreshBtn" onclick="doRefresh()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
         <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
@@ -132,7 +127,7 @@ tbody td{padding:9px 11px;font-size:13px;vertical-align:middle}
       </svg>
       Refresh
     </button>
-    <span class="status" id="statusText">Select a theme &amp; enter your API key, then click Refresh</span>
+    <span class="status" id="statusText">Select a theme and click Refresh</span>
     <div class="prog-track" id="progTrack"><div class="prog-fill" id="progFill" style="width:0%"></div></div>
   </div>
 </header>
@@ -144,7 +139,7 @@ tbody td{padding:9px 11px;font-size:13px;vertical-align:middle}
     <div class="sec-title">&#x1F30D; Universe Builder <span id="themeBadge" style="font-size:12px;color:var(--muted);font-weight:400"></span></div>
     <div class="sec-sub">25 large-cap US stocks for the selected theme &mdash; live price &amp; 52-week context</div>
     <div class="ugrid" id="uGrid">
-      <div class="empty" style="grid-column:1/-1"><p>Enter your FMP API key above, pick a theme, then click Refresh.</p><p>Financial Modeling Prep free tier &bull; 250 requests/day &bull; no credit card needed</p></div>
+      <div class="empty" style="grid-column:1/-1"><p>Pick a theme above and click Refresh to load stocks.</p></div>
     </div>
   </section>
 
@@ -224,16 +219,6 @@ let busy         = false;
 // UTILS
 // ─────────────────────────────────────────────
 const $ = id => document.getElementById(id);
-const getKey = () => localStorage.getItem('fmp_key') || $('apiKey').value.trim();
-
-function saveKey() {
-  const k = $('apiKey').value.trim();
-  if (!k) return;
-  localStorage.setItem('fmp_key', k);
-  $('apiKey').value = '';
-  $('apiKey').placeholder = '✓ Key saved';
-  setStatus('API key saved — click Refresh to load data');
-}
 
 function setStatus(m) { $('statusText').textContent = m; }
 
@@ -281,10 +266,8 @@ function clearTheme(theme) {
 }
 
 // ─────────────────────────────────────────────
-// API
+// API  (proxied through /api/fmp — key stays server-side)
 // ─────────────────────────────────────────────
-const BASE = 'https://financialmodelingprep.com/api/v3';
-
 async function apiFetch(url) {
   const r = await fetch(url);
   if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -293,28 +276,28 @@ async function apiFetch(url) {
   return j;
 }
 
-async function getQuotes(tickers, key) {
+async function getQuotes(tickers) {
   const ck = 'q_' + currentTheme;
   const hit = cGet(ck); if (hit) return hit;
-  const data = await apiFetch(`${BASE}/quote/${tickers.join(',')}?apikey=${key}`);
+  const data = await apiFetch(`/api/fmp?path=quote/${tickers.join(',')}`);
   const map = {};
   (Array.isArray(data) ? data : []).forEach(q => { map[q.symbol] = q; });
   cSet(ck, map);
   return map;
 }
 
-async function getKeyMetrics(ticker, key) {
+async function getKeyMetrics(ticker) {
   const ck = 'km_' + ticker;
   const hit = cGet(ck); if (hit) return hit;
-  const data = await apiFetch(`${BASE}/key-metrics/${ticker}?limit=2&period=annual&apikey=${key}`);
+  const data = await apiFetch(`/api/fmp?path=key-metrics/${ticker}&limit=2&period=annual`);
   const r = Array.isArray(data) ? data : [];
   cSet(ck, r); return r;
 }
 
-async function getIncome(ticker, key) {
+async function getIncome(ticker) {
   const ck = 'is_' + ticker;
   const hit = cGet(ck); if (hit) return hit;
-  const data = await apiFetch(`${BASE}/income-statement/${ticker}?limit=2&period=annual&apikey=${key}`);
+  const data = await apiFetch(`/api/fmp?path=income-statement/${ticker}&limit=2&period=annual`);
   const r = Array.isArray(data) ? data : [];
   cSet(ck, r); return r;
 }
@@ -322,14 +305,14 @@ async function getIncome(ticker, key) {
 // ─────────────────────────────────────────────
 // DATA ASSEMBLY
 // ─────────────────────────────────────────────
-async function loadTheme(theme, apiKey, force) {
+async function loadTheme(theme, force) {
   if (force) clearTheme(theme);
   const tickers = THEMES[theme].tickers;
   const descs   = THEMES[theme].desc;
 
   setProgress(5);
   setStatus('Fetching quotes…');
-  const quotes = await getQuotes(tickers, apiKey);
+  const quotes = await getQuotes(tickers);
 
   const stocks = [];
   for (let i = 0; i < tickers.length; i++) {
@@ -340,7 +323,7 @@ async function loadTheme(theme, apiKey, force) {
     const q = quotes[tk] || {};
     let km = [], is = [];
     try {
-      [km, is] = await Promise.all([getKeyMetrics(tk, apiKey), getIncome(tk, apiKey)]);
+      [km, is] = await Promise.all([getKeyMetrics(tk), getIncome(tk)]);
     } catch (_) {}
 
     const km0 = km[0] || {}, km1 = km[1] || {};
@@ -547,15 +530,13 @@ function renderThesis(stocks, theme) {
 // MAIN FLOW
 // ─────────────────────────────────────────────
 async function doRefresh(force = true) {
-  const key = getKey();
-  if (!key) { setError('Enter your Financial Modeling Prep API key above and click Save.'); return; }
   if (busy) return;
   busy = true;
   setError('');
   const btn = $('refreshBtn');
   btn.classList.add('spinning'); btn.disabled = true;
   try {
-    const stocks = await loadTheme(currentTheme, key, force);
+    const stocks = await loadTheme(currentTheme, force);
     currentData = stocks;
     renderUniverse(stocks);
     renderConviction(stocks);
@@ -574,7 +555,7 @@ async function doRefresh(force = true) {
 function selectTheme(theme) {
   currentTheme = theme;
   document.querySelectorAll('.theme-btn').forEach(b => b.classList.toggle('active', b.dataset.theme === theme));
-  if (getKey()) doRefresh(false);
+  doRefresh(false);
 }
 
 // ─────────────────────────────────────────────
@@ -590,9 +571,6 @@ function selectTheme(theme) {
     b.onclick = () => selectTheme(th);
     row.appendChild(b);
   });
-  if (localStorage.getItem('fmp_key')) {
-    $('apiKey').placeholder = '✓ Key saved — click Refresh to load data';
-  }
 })();
 </script>
 </body>
