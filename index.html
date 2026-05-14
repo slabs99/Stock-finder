@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stock Finder</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#070710;--surface:#0f0f1a;--surface2:#16162a;--border:#1f1f35;
+  --text:#e2e8f0;--muted:#64748b;--accent:#818cf8;
+  --green:#22c55e;--red:#ef4444;--amber:#f59e0b;--blue:#3b82f6;
+}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:14px;line-height:1.5}
+
+/* HEADER */
+header{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 20px;position:sticky;top:0;z-index:100}
+.hrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+h1{font-size:18px;font-weight:700;color:var(--accent);white-space:nowrap}
+.api-wrap{display:flex;gap:6px;flex:1;max-width:340px}
+.api-wrap input{flex:1;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 10px;font-size:13px}
+.api-wrap input:focus{outline:none;border-color:var(--accent)}
+.api-hint{font-size:11px;color:var(--muted)}
+.api-hint a{color:var(--accent);text-decoration:none}
+button{cursor:pointer;border:none;border-radius:6px;font-size:13px;font-weight:500;padding:6px 13px;transition:opacity .15s}
+button:hover{opacity:.85}button:active{opacity:.7}button:disabled{opacity:.4;cursor:not-allowed}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-save{background:var(--surface2);border:1px solid var(--border);color:var(--text)}
+.theme-row{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.theme-btn{background:var(--surface2);border:1px solid var(--border);color:var(--muted);padding:4px 11px;font-size:12px;border-radius:20px;transition:all .15s}
+.theme-btn:hover{border-color:var(--accent);color:var(--text)}
+.theme-btn.active{background:var(--accent);border-color:var(--accent);color:#fff}
+.ctrl-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.refresh-btn{background:var(--green);color:#fff;display:flex;align-items:center;gap:6px;padding:7px 16px}
+.refresh-btn svg{width:13px;height:13px;transition:transform .15s}
+.refresh-btn.spinning svg{animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.status{color:var(--muted);font-size:12px}
+.prog-track{width:110px;height:3px;background:var(--surface2);border-radius:2px;overflow:hidden;display:none}
+.prog-fill{height:100%;background:var(--accent);transition:width .25s ease}
+
+/* MAIN */
+main{max-width:1380px;margin:0 auto;padding:22px 20px}
+section{margin-bottom:38px}
+.sec-title{font-size:15px;font-weight:600;display:flex;align-items:center;gap:7px;margin-bottom:3px}
+.sec-sub{font-size:12px;color:var(--muted);margin-bottom:14px}
+.empty{background:var(--surface);border:1px dashed var(--border);border-radius:8px;padding:36px;text-align:center;color:var(--muted)}
+.empty p+p{margin-top:6px;font-size:11px}
+.err{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);color:var(--red);padding:10px 14px;border-radius:6px;font-size:13px;margin-bottom:14px;display:none}
+
+/* UNIVERSE GRID */
+.ugrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(195px,1fr));gap:9px}
+.tcard{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:11px;transition:border-color .15s}
+.tcard:hover{border-color:var(--accent)}
+.tcard .sym{font-size:16px;font-weight:700;color:var(--accent)}
+.tcard .co{font-size:11px;color:var(--muted);margin:1px 0 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tcard .prow{display:flex;align-items:baseline;gap:7px;margin-bottom:3px}
+.tcard .price{font-size:14px;font-weight:600}
+.tcard .chg{font-size:11px;font-weight:500}
+.tcard .d52{font-size:11px;margin-bottom:7px}
+.tcard .desc{font-size:11px;color:var(--muted);line-height:1.4}
+.tcard.loading{min-height:120px}
+.skel{background:linear-gradient(90deg,var(--surface) 25%,var(--surface2) 50%,var(--surface) 75%);background-size:200% 100%;animation:shimmer 1.4s infinite;border-radius:4px;height:12px;margin:4px 0}
+@keyframes shimmer{to{background-position:-200% 0}}
+.g{color:var(--green)}.r{color:var(--red)}.a{color:var(--amber)}.m{color:var(--muted)}
+
+/* CONVICTION TABLE */
+.tbl-wrap{overflow-x:auto;border-radius:8px;border:1px solid var(--border)}
+table{width:100%;border-collapse:collapse}
+thead th{background:var(--surface2);padding:9px 11px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);white-space:nowrap;border-bottom:1px solid var(--border)}
+tbody tr{border-bottom:1px solid var(--border);transition:background .1s}
+tbody tr:last-child{border-bottom:none}
+tbody tr:hover{background:var(--surface2)}
+tbody td{padding:9px 11px;font-size:13px;vertical-align:middle}
+.rk{color:var(--muted);font-size:12px}
+.tsym{font-weight:700;color:var(--accent)}
+.sbar-bg{height:4px;background:var(--border);border-radius:2px;margin-top:4px}
+.sbar-fill{height:100%;border-radius:2px}
+.badge{display:inline-block;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:700;letter-spacing:.03em}
+.BEST{background:rgba(34,197,94,.15);color:var(--green)}
+.STRONG{background:rgba(59,130,246,.15);color:var(--blue)}
+.WATCH{background:rgba(245,158,11,.15);color:var(--amber)}
+.AVOID{background:rgba(239,68,68,.15);color:var(--red)}
+.dots{display:flex;gap:3px}
+.dot{width:8px;height:8px;border-radius:50%;cursor:help}
+.dp{background:var(--green)}.df{background:var(--border)}
+.snap{font-size:12px;color:var(--muted);max-width:240px}
+
+/* THESIS CARDS */
+.t3grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(370px,1fr));gap:14px}
+.tcard3{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.t3hdr{padding:13px 15px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:11px}
+.rnk{width:27px;height:27px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0}
+.tinfo h3{font-size:16px;font-weight:700;color:var(--accent)}
+.tinfo span{font-size:11px;color:var(--muted)}
+.tscore{margin-left:auto;text-align:right}
+.tscore .num{font-size:21px;font-weight:800}
+.tscore small{font-size:11px;color:var(--muted);font-weight:400}
+.tsec{padding:11px 15px;border-bottom:1px solid var(--border)}
+.tsec:last-child{border-bottom:none}
+.tlab{display:flex;align-items:center;gap:5px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:5px}
+.tlab .ico{font-size:13px}
+.tsec p{font-size:13px;line-height:1.6}
+.src{font-size:11px;color:var(--muted);font-style:italic;margin-top:4px}
+
+@media(max-width:640px){
+  main{padding:14px}
+  .t3grid{grid-template-columns:1fr}
+  .ugrid{grid-template-columns:repeat(auto-fill,minmax(155px,1fr))}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="hrow">
+    <h1>&#x1F4C8; Stock Finder</h1>
+    <div class="api-wrap">
+      <input type="password" id="apiKey" placeholder="Enter FMP API key..." autocomplete="off">
+      <button class="btn-save" onclick="saveKey()">Save</button>
+    </div>
+    <span class="api-hint">Free key at <a href="https://financialmodelingprep.com/developer/docs/" target="_blank">financialmodelingprep.com</a> &mdash; 250 req/day</span>
+  </div>
+  <div class="theme-row" id="themeRow"></div>
+  <div class="ctrl-row">
+    <button class="refresh-btn" id="refreshBtn" onclick="doRefresh()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+        <path d="M21 3v5h-5"/>
+        <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+        <path d="M8 16H3v5"/>
+      </svg>
+      Refresh
+    </button>
+    <span class="status" id="statusText">Select a theme &amp; enter your API key, then click Refresh</span>
+    <div class="prog-track" id="progTrack"><div class="prog-fill" id="progFill" style="width:0%"></div></div>
+  </div>
+</header>
+
+<main>
+  <div class="err" id="errBanner"></div>
+
+  <section>
+    <div class="sec-title">&#x1F30D; Universe Builder <span id="themeBadge" style="font-size:12px;color:var(--muted);font-weight:400"></span></div>
+    <div class="sec-sub">25 large-cap US stocks for the selected theme &mdash; live price &amp; 52-week context</div>
+    <div class="ugrid" id="uGrid">
+      <div class="empty" style="grid-column:1/-1"><p>Enter your FMP API key above, pick a theme, then click Refresh.</p><p>Financial Modeling Prep free tier &bull; 250 requests/day &bull; no credit card needed</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-title">&#x1F3AF; Conviction Score</div>
+    <div class="sec-sub">Ranked 0&ndash;100 &bull; Quality gates: ROIC&ge;15% &bull; Positive FCF &bull; Net Debt/EBITDA&lt;2x &bull; Revenue growth YoY &bull; Discount gates: 15%+ below 52w high &bull; Forward P/E below trailing</div>
+    <div id="convWrap"><div class="empty">Load stocks to see conviction scores.</div></div>
+  </section>
+
+  <section>
+    <div class="sec-title">&#x1F4A1; Top-3 Thesis</div>
+    <div class="sec-sub">Deep dive on the three highest-scoring names &mdash; Moat &bull; Drawdown &bull; Catalyst &bull; Exit</div>
+    <div class="t3grid" id="t3Grid">
+      <div class="empty" style="grid-column:1/-1">Load stocks to generate thesis cards.</div>
+    </div>
+  </section>
+</main>
+
+<script>
+// ─────────────────────────────────────────────
+// THEME DEFINITIONS  (8 themes × 25 tickers)
+// ─────────────────────────────────────────────
+const THEMES = {
+  'AI Infrastructure': {
+    tickers: ['NVDA','MSFT','GOOGL','AMZN','META','AMD','AVGO','ORCL','TSM','DELL','ARM','MRVL','PLTR','ANET','NET','SNOW','MDB','DDOG','SMCI','PSTG','CFLT','VRT','LSCC','CRDO','SLAB'],
+    desc: {NVDA:'GPU leader powering AI training & inference',MSFT:'Azure cloud + OpenAI partnership',GOOGL:'Search AI + Google Cloud + Gemini models',AMZN:'AWS cloud leader; massive AI capex cycle',META:'Llama open models; largest AI infra investor',AMD:'CPU/GPU challenger to NVIDIA in data centers',AVGO:'Custom AI ASICs + networking silicon for hyperscalers',ORCL:'Cloud database + GPU rental cluster growth',TSM:'Manufactures chips for every major AI player',DELL:'AI server hardware & NVIDIA SuperPOD reseller',ARM:'CPU architecture powering nearly all AI edge chips',MRVL:'Data center networking silicon for AI fabric',PLTR:'AI-powered analytics platform for govt & enterprise',ANET:'High-speed switches enabling AI data center networks',NET:'Edge cloud & AI security gateway',SNOW:'AI data platform & LLM integration layer',MDB:'Vector database for AI-powered applications',DDOG:'AI observability, monitoring & security platform',SMCI:'High-density AI server rack & liquid cooling',PSTG:'All-flash storage optimized for AI workloads',CFLT:'Real-time data streaming for AI pipelines',VRT:'Critical power & cooling infrastructure for data centers',LSCC:'Low-power FPGAs for AI inference at the edge',CRDO:'High-speed interconnects for AI cluster fabric',SLAB:'IoT connectivity chips enabling AI at the edge'}
+  },
+  'Semiconductors': {
+    tickers: ['NVDA','AMD','AVGO','QCOM','TSM','INTC','AMAT','LRCX','KLAC','ASML','MRVL','TXN','ADI','MCHP','ON','MPWR','ENTG','SWKS','QRVO','SLAB','AMBA','FORM','ACLS','ONTO','MKSI'],
+    desc: {NVDA:'GPU accelerators for AI & HPC workloads',AMD:'CPUs & GPUs for data center and gaming',AVGO:'Networking chips & custom ASICs for hyperscalers',QCOM:'Mobile processors & wireless modem leader',TSM:"World's leading chip foundry (TSMC ADR)",INTC:'CPU & foundry services turnaround play',AMAT:'Largest semiconductor manufacturing equipment maker',LRCX:'Etch equipment for advanced-node chips',KLAC:'Process control & wafer inspection systems',ASML:'Sole maker of EUV extreme-UV lithography machines',MRVL:'Data center & storage semiconductor platform',TXN:'Analog & embedded processors for industrial/auto',ADI:'High-performance analog & mixed-signal ICs',MCHP:'Microcontrollers & analog for embedded systems',ON:'Power semiconductors for EVs & industrial',MPWR:'High-efficiency power management ICs',ENTG:'Specialty materials & chemicals for chipmaking',SWKS:'RF semiconductors for smartphones & IoT',QRVO:'RF front-end solutions for mobile & defense',SLAB:'IoT & wireless connectivity chips',AMBA:'AI vision processors for security cameras & drones',FORM:'Advanced packaging & semiconductor test equipment',ACLS:'Ion implant equipment for memory chips',ONTO:'Metrology & process-control inspection systems',MKSI:'Gas delivery & process-control instruments'}
+  },
+  'Cybersecurity': {
+    tickers: ['CRWD','PANW','FTNT','ZS','S','OKTA','CYBR','QLYS','TENB','GEN','CHKP','VRNT','CSCO','MSFT','IBM','SAIC','BAH','LDOS','CACI','RPD','NET','DDOG','AXON','FFIV','ITRI'],
+    desc: {CRWD:'Cloud-native endpoint protection market leader',PANW:'AI-powered unified security platform (Cortex)',FTNT:'Network security, SD-WAN & SASE firewall leader',ZS:'Zero-trust cloud security proxy (SASE leader)',S:'AI-driven endpoint detection & response (EDR)',OKTA:'Identity & access management cloud platform',CYBR:'Privileged access management leader',QLYS:'Cloud-based security & vulnerability management',TENB:'Exposure management & vulnerability scanning',GEN:'Norton & Avast consumer security portfolio',CHKP:'Firewall & unified threat management veteran',VRNT:'AI-powered security & customer intelligence',CSCO:'Network infrastructure & security stack',MSFT:'Defender security suite across enterprise endpoints',IBM:'Cybersecurity services & QRadar SIEM platform',SAIC:'IT & cyber solutions for US government agencies',BAH:'Cyber consulting & national security advisory',LDOS:'IT services & cyber solutions for federal agencies',CACI:'Intelligence & cyber missions for the DoD',RPD:'Rapid7 vulnerability management & incident response',NET:'Cloudflare DDoS protection & network security',DDOG:'Security monitoring, SIEM & threat detection',AXON:'Digital evidence management & public safety AI',FFIV:'Application delivery, API security & WAF',ITRI:'Utility network communications & grid security'}
+  },
+  'GLP-1 / Obesity': {
+    tickers: ['LLY','NVO','HIMS','AMGN','PFE','MRK','AZN','ABBV','RPRX','VKTX','RYTM','ALT','TERN','CRNX','GPCR','ABT','MDT','ISRG','UNH','CVS','HUM','WMT','COST','IONS','BMY'],
+    desc: {LLY:'Mounjaro & Zepbound — GLP-1 market leader',NVO:'Ozempic & Wegovy pioneer; largest weight-loss franchise',HIMS:'Telehealth platform for compounded GLP-1 prescriptions',AMGN:'Maritide GLP-1 candidate in late-stage clinical trials',PFE:'Oral small-molecule obesity drug in pipeline',MRK:'Efinopegdutide obesity candidate in development',AZN:'Cardio-metabolic pipeline & obesity complication drugs',ABBV:'GLP-1-adjacent cardiovascular & metabolic portfolio',RPRX:'Royalty stream on Ozempic & other GLP-1 drugs',VKTX:'GLP-1/GIP receptor agonist pipeline candidate',RYTM:'Melanocortin pathway obesity treatment',ALT:"Altimmune's pemvidutide dual GLP-1 agonist candidate",TERN:'TERN-601 obesity small molecule in clinical trials',CRNX:'Crinetics peptide-based metabolic disease programs',GPCR:'GPCR-targeted GLP-1 & metabolic small molecules',ABT:'Continuous glucose monitors for obesity-related diabetes',MDT:'Devices addressing obesity & cardiovascular complications',ISRG:'Robotic surgery for bariatric & metabolic procedures',UNH:'Largest insurer managing GLP-1 drug cost & coverage',CVS:'PBM & pharmacy managing GLP-1 formulary access',HUM:'Medicare insurer with high GLP-1 patient exposure',WMT:'Retail shift to healthier foods as GLP-1 usage rises',COST:'Bulk nutrition & GLP-1 drug dispensing growth',IONS:'Antisense oligonucleotide metabolic disease pipeline',BMY:'Cardiovascular outcomes companion to GLP-1 therapy'}
+  },
+  'Defense Primes': {
+    tickers: ['LMT','RTX','NOC','GD','BA','LHX','HII','KTOS','LDOS','SAIC','BAH','CACI','BWXT','HEICO','TDG','TXT','AXON','PLTR','AVAV','CW','MOOG','VSE','MRCY','TDY','DRS'],
+    desc: {LMT:"World's largest defense contractor; F-35 & missile systems",RTX:'Pratt & Whitney engines + Raytheon missiles & radars',NOC:'B-21 stealth bomber & nuclear deterrence systems',GD:'Gulfstream jets, submarines & combat vehicles',BA:'Fighter jets, helicopters & space systems (defense)',LHX:'Electronic warfare, C4ISR & mission systems',HII:"America's largest warship builder (subs & carriers)",KTOS:'Drone, hypersonic & directed-energy disruptive tech',LDOS:'IT services & cybersecurity for US federal agencies',SAIC:'IT modernization & C2 systems for defense',BAH:'Defense consulting, cyber & analytics (Booz Allen)',CACI:'Intelligence, cyber & digital solutions for DoD',BWXT:'Nuclear reactors for submarines & national labs',HEICO:'FAA-approved aircraft parts; defense aviation MRO',TDG:'TransDigm: aftermarket aircraft components monopoly',TXT:'Bell helicopters, Cessna & defense systems',AXON:'Tasers, drones & digital evidence for law enforcement',PLTR:'AI-powered defense analytics & battlefield intelligence',AVAV:'AeroVironment: tactical drones & loitering munitions',CW:'Curtiss-Wright: defense electronics & naval systems',MOOG:'Precision motion control for defense & aerospace',VSE:'Aviation maintenance & defense logistics services',MRCY:'Mercury Systems: mission computing & sensor modules',TDY:'Teledyne: instruments, imaging & defense electronics',DRS:'Leonardo DRS: ground vehicle electronics & C4I'}
+  },
+  'Credit-Card Networks': {
+    tickers: ['V','MA','AXP','DFS','COF','SYF','SQ','PYPL','FIS','FI','GPN','WEX','AFRM','UPST','BILL','FOUR','TOST','EVTC','PAYO','WU','STNE','ICE','REPAY','PSFE','NRDS'],
+    desc: {V:'Visa: largest global card payment network',MA:'Mastercard: cross-border payment technology leader',AXP:'American Express: premium spend & travel rewards',DFS:'Discover: card network + direct banking',COF:'Capital One: large card issuer + network ambitions',SYF:'Synchrony: co-branded & retail credit card issuer',SQ:'Block/Square: merchant payments & Cash App ecosystem',PYPL:'PayPal: checkout & Venmo consumer network',FIS:'Core banking & global payments processing',FI:'Fiserv: merchant acquiring & financial technology',GPN:'Global Payments: merchant services & software',WEX:'WEX: fleet & corporate payment cards',AFRM:'Affirm: buy-now-pay-later network & risk platform',UPST:'Upstart: AI-driven credit underwriting platform',BILL:'Bill.com: B2B payment automation for SMBs',FOUR:'Shift4: integrated payments for hospitality & sports',TOST:'Toast: restaurant-focused payment & POS platform',EVTC:'EVERTEC: payments processing in Latin America',PAYO:'Payoneer: cross-border B2B payment platform',WU:'Western Union: global money transfer network',STNE:'StoneCo: Brazilian merchant payments & fintech',ICE:'ICE: NYSE owner & mortgage data infrastructure',REPAY:'Repay: vertical payments for auto & personal loans',PSFE:'Paysafe: digital wallet & iGaming payments',NRDS:'NerdWallet: financial comparison & credit marketplace'}
+  },
+  'Software at a Discount': {
+    tickers: ['MSFT','CRM','ADBE','NOW','WDAY','INTU','ORCL','SAP','SNOW','MDB','DDOG','CFLT','GTLB','ZM','DOCU','OKTA','HUBS','TWLO','ESTC','VEEV','PCTY','BILL','JAMF','WK','APPN'],
+    desc: {MSFT:'Azure, Office 365 & Copilot AI suite',CRM:'Salesforce: CRM + Einstein AI platform',ADBE:'Creative Cloud & AI-powered content creation',NOW:'ServiceNow: enterprise workflow automation',WDAY:'Workday: cloud HR & finance ERP',INTU:'Intuit: TurboTax, QuickBooks & financial AI',ORCL:'Oracle: database, cloud ERP & healthcare IT',SAP:'Global ERP system backbone for enterprises',SNOW:'Snowflake: cloud data warehousing & AI platform',MDB:"MongoDB: developer-first NoSQL database",DDOG:'Datadog: observability, APM & security platform',CFLT:'Confluent: Kafka-based real-time data streaming',GTLB:'GitLab: DevSecOps platform & CI/CD pipeline',ZM:'Zoom: video comms & AI-enhanced collaboration',DOCU:'DocuSign: e-signature & agreement lifecycle',OKTA:'Okta: identity & access management cloud',HUBS:'HubSpot: SMB CRM & marketing automation',TWLO:'Twilio: CPaaS communications API platform',ESTC:'Elastic: search, observability & security data',VEEV:'Veeva: life sciences cloud CRM & data',PCTY:'Paylocity: cloud payroll & HCM for mid-market',BILL:'Bill.com: accounts payable & payment automation',JAMF:'Jamf: Apple device management for enterprise',WK:'Workiva: financial reporting & ESG disclosure',APPN:'Appian: low-code enterprise automation platform'}
+  },
+  'Re-shoring Industrials': {
+    tickers: ['CAT','DE','EMR','HON','GE','ETN','ITW','ROK','AME','PH','IR','XYL','CMI','CR','MSM','MLM','VMC','NUE','STLD','ATI','HWM','TKR','SPX','CARR','GEV'],
+    desc: {CAT:'Caterpillar: construction & mining equipment backbone',DE:'Deere: precision agriculture & construction equipment',EMR:'Emerson: automation & process control systems',HON:'Honeywell: industrial automation & aerospace',GE:'GE Aerospace: jet engines & defense aviation',ETN:'Eaton: electrical power management & EV charging',ITW:'Illinois Tool Works: diversified industrial machinery',ROK:'Rockwell Automation: factory automation & IIoT',AME:'AMETEK: electronic instruments & precision motors',PH:'Parker Hannifin: motion & control technologies',IR:'Ingersoll Rand: compressed air & industrial tools',XYL:'Xylem: water technology & smart infrastructure',CMI:'Cummins: diesel engines & hydrogen power systems',CR:'Crane NXT: banknote tech & aerospace fluid handling',MSM:'MSC Industrial: metalworking supply chain solutions',MLM:'Martin Marietta: aggregates for US infrastructure',VMC:'Vulcan Materials: crushed stone for road building',NUE:'Nucor: largest US steel producer & mini-mills',STLD:'Steel Dynamics: low-cost US flat-roll steel',ATI:'ATI: specialty alloys for aerospace & defense',HWM:'Howmet: aerospace fasteners & turbine components',TKR:'Timken: bearings & precision components',SPX:'SPX Technologies: HVAC & detection solutions',CARR:'Carrier: HVAC & building automation systems',GEV:'GE Vernova: grid electrification & wind energy'}
+  }
+};
+
+const SECTOR_CATALYSTS = {
+  'AI Infrastructure':'AI capex cycle acceleration; hyperscaler next-gen GPU orders; sovereign AI national build-outs',
+  'Semiconductors':'AI chip demand surge; automotive silicon content growth; inventory restocking cycle turning positive',
+  'Cybersecurity':'Zero-trust mandates; AI-driven threat landscape requiring modern platforms; federal compliance spending',
+  'GLP-1 / Obesity':'Expanding GLP-1 indications (NASH, sleep apnea, heart failure); Medicare Part D coverage expansion; new entrants validating the total addressable market',
+  'Defense Primes':'NATO re-armament post-Ukraine; US defense budget growth; counter-drone & hypersonic programs accelerating',
+  'Credit-Card Networks':'Cross-border payment volume recovery; checkout ubiquity; value-added services layered on existing rails',
+  'Software at a Discount':'AI-native product upgrade cycle; enterprise digital transformation backlog; operating leverage as growth re-accelerates',
+  'Re-shoring Industrials':'Infrastructure Investment & Jobs Act spending; CHIPS Act & IRA manufacturing incentives; supply-chain diversification from Asia'
+};
+
+// ─────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────
+let currentTheme = 'AI Infrastructure';
+let currentData  = [];
+let busy         = false;
+
+// ─────────────────────────────────────────────
+// UTILS
+// ─────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const getKey = () => localStorage.getItem('fmp_key') || $('apiKey').value.trim();
+
+function saveKey() {
+  const k = $('apiKey').value.trim();
+  if (!k) return;
+  localStorage.setItem('fmp_key', k);
+  $('apiKey').value = '';
+  $('apiKey').placeholder = '✓ Key saved';
+  setStatus('API key saved — click Refresh to load data');
+}
+
+function setStatus(m) { $('statusText').textContent = m; }
+
+function setError(m) {
+  const el = $('errBanner');
+  el.textContent = m;
+  el.style.display = m ? '' : 'none';
+}
+
+function setProgress(p) {
+  const t = $('progTrack'), f = $('progFill');
+  if (p >= 0 && p < 100) { t.style.display = ''; f.style.width = p + '%'; }
+  else { t.style.display = 'none'; }
+}
+
+const fmt$ = n => (n == null || isNaN(n)) ? '—' : '$' + Number(n).toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2});
+const fmtPct = (n, mul=100) => (n == null || isNaN(n)) ? '—' : (n*mul >= 0 ? '+' : '') + (n*mul).toFixed(1) + '%';
+const fmtX = n => (n == null || isNaN(n)) ? '—' : n.toFixed(1) + 'x';
+
+// ─────────────────────────────────────────────
+// CACHE  (sessionStorage, 20-min TTL)
+// ─────────────────────────────────────────────
+const TTL = 20 * 60 * 1000;
+
+function cGet(k) {
+  try {
+    const s = sessionStorage.getItem('sf2_' + k);
+    if (!s) return null;
+    const {d, t} = JSON.parse(s);
+    if (Date.now() - t > TTL) { sessionStorage.removeItem('sf2_' + k); return null; }
+    return d;
+  } catch { return null; }
+}
+
+function cSet(k, d) {
+  try { sessionStorage.setItem('sf2_' + k, JSON.stringify({d, t: Date.now()})); } catch {}
+}
+
+function clearTheme(theme) {
+  (THEMES[theme]?.tickers || []).forEach(t => {
+    sessionStorage.removeItem('sf2_km_' + t);
+    sessionStorage.removeItem('sf2_is_' + t);
+  });
+  sessionStorage.removeItem('sf2_q_' + theme);
+}
+
+// ─────────────────────────────────────────────
+// API
+// ─────────────────────────────────────────────
+const BASE = 'https://financialmodelingprep.com/api/v3';
+
+async function apiFetch(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const j = await r.json();
+  if (j && j['Error Message']) throw new Error(j['Error Message']);
+  return j;
+}
+
+async function getQuotes(tickers, key) {
+  const ck = 'q_' + currentTheme;
+  const hit = cGet(ck); if (hit) return hit;
+  const data = await apiFetch(`${BASE}/quote/${tickers.join(',')}?apikey=${key}`);
+  const map = {};
+  (Array.isArray(data) ? data : []).forEach(q => { map[q.symbol] = q; });
+  cSet(ck, map);
+  return map;
+}
+
+async function getKeyMetrics(ticker, key) {
+  const ck = 'km_' + ticker;
+  const hit = cGet(ck); if (hit) return hit;
+  const data = await apiFetch(`${BASE}/key-metrics/${ticker}?limit=2&period=annual&apikey=${key}`);
+  const r = Array.isArray(data) ? data : [];
+  cSet(ck, r); return r;
+}
+
+async function getIncome(ticker, key) {
+  const ck = 'is_' + ticker;
+  const hit = cGet(ck); if (hit) return hit;
+  const data = await apiFetch(`${BASE}/income-statement/${ticker}?limit=2&period=annual&apikey=${key}`);
+  const r = Array.isArray(data) ? data : [];
+  cSet(ck, r); return r;
+}
+
+// ─────────────────────────────────────────────
+// DATA ASSEMBLY
+// ─────────────────────────────────────────────
+async function loadTheme(theme, apiKey, force) {
+  if (force) clearTheme(theme);
+  const tickers = THEMES[theme].tickers;
+  const descs   = THEMES[theme].desc;
+
+  setProgress(5);
+  setStatus('Fetching quotes…');
+  const quotes = await getQuotes(tickers, apiKey);
+
+  const stocks = [];
+  for (let i = 0; i < tickers.length; i++) {
+    const tk = tickers[i];
+    setProgress(10 + Math.round((i / tickers.length) * 85));
+    setStatus(`Fundamentals ${i+1}/${tickers.length} — ${tk}`);
+
+    const q = quotes[tk] || {};
+    let km = [], is = [];
+    try {
+      [km, is] = await Promise.all([getKeyMetrics(tk, apiKey), getIncome(tk, apiKey)]);
+    } catch (_) {}
+
+    const km0 = km[0] || {}, km1 = km[1] || {};
+    const is0 = is[0] || {}, is1 = is[1] || {};
+
+    const rev0 = is0.revenue || 0, rev1 = is1.revenue || 0;
+    const revenueGrowth = rev1 > 0 ? (rev0 - rev1) / rev1 : null;
+    const roic          = km0.roic   != null ? km0.roic   : null;
+    const fcfPS         = km0.freeCashFlowPerShare != null ? km0.freeCashFlowPerShare : null;
+    const netDebt       = km0.netDebtToEBITDA != null ? km0.netDebtToEBITDA : null;
+    const price         = q.price    || 0;
+    const yearHigh      = q.yearHigh || 0;
+    const discount52w   = yearHigh > 0 ? (yearHigh - price) / yearHigh : null;
+    const trailingPE    = q.pe != null ? q.pe : null;
+    const histPE        = km1.peRatio || km0.peRatio || null;
+    const fwdPEOK       = (trailingPE != null && histPE != null) ? trailingPE < histPE : null;
+
+    stocks.push({
+      ticker: tk, name: q.name || tk, desc: descs[tk] || '',
+      price, yearHigh, priceChangePct: q.changesPercentage || 0,
+      roic, fcfPS, fcfPos: fcfPS != null ? fcfPS > 0 : null,
+      netDebt, revenueGrowth, discount52w,
+      trailingPE, histPE, fwdPEOK,
+      rev0, rev1, marketCap: q.marketCap || 0
+    });
+
+    if (i < tickers.length - 1) await new Promise(r => setTimeout(r, 75));
+  }
+  setProgress(100);
+  return stocks;
+}
+
+// ─────────────────────────────────────────────
+// SCORING
+// ─────────────────────────────────────────────
+function score(s) {
+  let n = 0;
+  const g = {roic:false, fcf:false, debt:false, growth:false, d52:false, fpe:false};
+  if (s.roic        != null && s.roic >= 0.15)          { n += 20; g.roic   = true; }
+  if (s.fcfPos      === true)                            { n += 20; g.fcf    = true; }
+  if (s.netDebt     != null && s.netDebt < 2)            { n += 20; g.debt   = true; }
+  if (s.revenueGrowth != null && s.revenueGrowth > 0)   { n += 20; g.growth = true; }
+  if (s.discount52w != null && s.discount52w >= 0.15)   { n += 10; g.d52    = true; }
+  if (s.fwdPEOK     === true)                            { n += 10; g.fpe    = true; }
+  return {score: n, gates: g};
+}
+
+function tier(sc) {
+  if (sc >= 80) return {label:'BEST',   cls:'BEST',   color:'var(--green)'};
+  if (sc >= 65) return {label:'STRONG', cls:'STRONG', color:'var(--blue)'};
+  if (sc >= 50) return {label:'WATCH',  cls:'WATCH',  color:'var(--amber)'};
+  return              {label:'AVOID',  cls:'AVOID',  color:'var(--red)'};
+}
+
+// ─────────────────────────────────────────────
+// THESIS GENERATOR
+// ─────────────────────────────────────────────
+function buildThesis(s, rank, theme) {
+  const {score: sc, gates: g} = score(s);
+  const t = tier(sc);
+  const d52  = s.discount52w != null ? (s.discount52w * 100).toFixed(0) : null;
+  const roicS = s.roic != null ? (s.roic * 100).toFixed(1) + '%' : 'N/A';
+  const revS  = s.revenueGrowth != null ? (s.revenueGrowth * 100).toFixed(1) + '%' : 'N/A';
+
+  const moat = `${s.ticker} scores ${sc}/100 (${t.label}) with a ROIC of ${roicS}`
+    + (g.fcf  ? ', positive free cash flow'  : ', negative or unavailable FCF')
+    + (s.netDebt != null ? `, and net debt/EBITDA of ${fmtX(s.netDebt)}` : '')
+    + `. ${g.roic && g.fcf
+        ? 'The combination of high capital returns and consistent cash generation points to durable competitive advantages and pricing power.'
+        : 'Capital efficiency metrics warrant monitoring before building conviction.'}`;
+
+  const drawdown = `${s.ticker} is currently ${d52 != null ? d52 + '%' : 'an unknown amount'} below its 52-week high of ${fmt$(s.yearHigh)}, trading at ${fmt$(s.price)}.`
+    + ` Revenue ${s.revenueGrowth != null ? (s.revenueGrowth > 0 ? `grew ${revS} YoY` : `declined ${revS} YoY`) : 'growth is unavailable'}`
+    + (s.trailingPE ? `, with a trailing P/E of ${s.trailingPE.toFixed(1)}x` : '')
+    + `. ${d52 != null && parseFloat(d52) >= 15
+        ? 'The drawdown appears disproportionate relative to fundamentals, suggesting a potential mean-reversion opportunity.'
+        : 'Limited discount from the 52-week high reduces margin of safety.'}`;
+
+  const catalyst = `Key near-term catalysts: ${SECTOR_CATALYSTS[theme] || 'sector-specific growth drivers'}.`
+    + (g.fpe && s.trailingPE && s.histPE
+        ? ` Current P/E of ${s.trailingPE.toFixed(1)}x is below the prior-year multiple of ${s.histPE.toFixed(1)}x — the market has already de-rated this name, opening the door to re-rating upside.`
+        : ' Multiple expansion is not assumed; upside depends on earnings growth beating expectations.');
+
+  const stop   = s.price > 0 ? (s.price * 0.80).toFixed(2) : 'N/A';
+  const target = s.yearHigh  > 0 ? s.yearHigh.toFixed(2)      : 'N/A';
+  const upside = d52 != null ? d52 + '%' : 'significant';
+  const exit   = `Bull target: recovery to 52-week high of $${target} (${upside} upside from current). Thesis breaks if: (1) revenue growth turns negative two consecutive quarters, (2) ROIC falls below 10%, or (3) the stock closes below $${stop} on elevated volume. Revisit FCF and debt levels at each earnings report.`;
+
+  return {moat, drawdown, catalyst, exit, score: sc, tier: t};
+}
+
+// ─────────────────────────────────────────────
+// RENDER: UNIVERSE
+// ─────────────────────────────────────────────
+function renderUniverse(stocks) {
+  $('themeBadge').textContent = '— ' + currentTheme;
+  if (!stocks.length) {
+    $('uGrid').innerHTML = '<div class="empty" style="grid-column:1/-1"><p>No data returned.</p></div>';
+    return;
+  }
+  $('uGrid').innerHTML = stocks.map(s => {
+    const d = s.discount52w;
+    const dCls = d != null ? (d >= .15 ? 'g' : d >= .05 ? 'a' : 'm') : 'm';
+    const dLbl = d != null ? `${(d*100).toFixed(1)}% below 52w high` : '52w data N/A';
+    const cCls = s.priceChangePct >= 0 ? 'g' : 'r';
+    return `<div class="tcard">
+      <div class="sym">${s.ticker}</div>
+      <div class="co">${s.name}</div>
+      <div class="prow">
+        <span class="price">${fmt$(s.price)}</span>
+        <span class="chg ${cCls}">${s.priceChangePct >= 0 ? '+' : ''}${(s.priceChangePct||0).toFixed(2)}%</span>
+      </div>
+      <div class="d52 ${dCls}">${dLbl}</div>
+      <div class="desc">${s.desc}</div>
+    </div>`;
+  }).join('');
+}
+
+// ─────────────────────────────────────────────
+// RENDER: CONVICTION TABLE
+// ─────────────────────────────────────────────
+function renderConviction(stocks) {
+  if (!stocks.length) { $('convWrap').innerHTML = '<div class="empty">No data.</div>'; return; }
+  const ranked = stocks.map(s => ({...s, ...score(s)})).sort((a,b) => b.score - a.score);
+  const dot = p => `<div class="dot ${p ? 'dp' : 'df'}" title="${p ? 'Pass' : 'Fail'}"></div>`;
+  const rows = ranked.map((s, i) => {
+    const t = tier(s.score);
+    const snap = [
+      s.revenueGrowth != null ? `Rev ${fmtPct(s.revenueGrowth)}` : 'Rev N/A',
+      s.roic != null ? `ROIC ${(s.roic*100).toFixed(0)}%` : '',
+      s.discount52w != null ? `${(s.discount52w*100).toFixed(0)}% off high` : ''
+    ].filter(Boolean).join(' · ');
+    return `<tr>
+      <td class="rk">${i+1}</td>
+      <td><span class="tsym">${s.ticker}</span></td>
+      <td style="min-width:110px">
+        <span style="font-size:15px;font-weight:700;color:${t.color}">${s.score}</span>
+        <span style="color:var(--muted);font-size:11px">/100</span>
+        <div class="sbar-bg"><div class="sbar-fill" style="width:${s.score}%;background:${t.color}"></div></div>
+      </td>
+      <td><span class="badge ${t.cls}">${t.label}</span></td>
+      <td title="ROIC · FCF · Debt/EBITDA · Revenue · 52w Discount · Fwd P/E">
+        <div class="dots">${dot(s.gates.roic)}${dot(s.gates.fcf)}${dot(s.gates.debt)}${dot(s.gates.growth)}${dot(s.gates.d52)}${dot(s.gates.fpe)}</div>
+      </td>
+      <td class="snap">${snap}</td>
+      <td style="font-size:12px;color:var(--muted)">${fmt$(s.price)}</td>
+    </tr>`;
+  }).join('');
+  $('convWrap').innerHTML = `<div class="tbl-wrap"><table>
+    <thead><tr>
+      <th>#</th><th>Ticker</th><th>Score</th><th>Tier</th>
+      <th title="ROIC · FCF · Debt · Growth · 52w · FwdPE">Gates ✕6</th>
+      <th>Snapshot</th><th>Price</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
+}
+
+// ─────────────────────────────────────────────
+// RENDER: TOP-3 THESIS CARDS
+// ─────────────────────────────────────────────
+function renderThesis(stocks, theme) {
+  if (!stocks.length) { $('t3Grid').innerHTML = '<div class="empty" style="grid-column:1/-1">No data.</div>'; return; }
+  const top3 = stocks.map(s => ({...s, ...score(s)})).sort((a,b) => b.score - a.score).slice(0,3);
+  const medals = ['#f59e0b','#94a3b8','#cd7c4a'];
+  $('t3Grid').innerHTML = top3.map((s, i) => {
+    const th = buildThesis(s, i+1, theme);
+    return `<div class="tcard3">
+      <div class="t3hdr">
+        <div class="rnk" style="background:${medals[i]}">${i+1}</div>
+        <div class="tinfo"><h3>${s.ticker}</h3><span>${s.name}</span></div>
+        <div class="tscore">
+          <div class="num" style="color:${th.tier.color}">${th.score}<small>/100</small></div>
+          <span class="badge ${th.tier.cls}" style="display:block;text-align:center;margin-top:2px">${th.tier.label}</span>
+        </div>
+      </div>
+      <div>
+        <div class="tsec">
+          <div class="tlab"><span class="ico">🏰</span> THE MOAT — what makes it durable?</div>
+          <p>${th.moat}</p>
+          <div class="src">Source: FMP annual key-metrics — ROIC, FCF/share, Net Debt/EBITDA</div>
+        </div>
+        <div class="tsec">
+          <div class="tlab"><span class="ico">📉</span> THE DRAWDOWN — why is it on sale?</div>
+          <p>${th.drawdown}</p>
+          <div class="src">Source: FMP real-time quote — 52-week high, trailing P/E</div>
+        </div>
+        <div class="tsec">
+          <div class="tlab"><span class="ico">🚀</span> THE CATALYST — what unlocks upside in 12 months?</div>
+          <p>${th.catalyst}</p>
+          <div class="src">Source: Sector thesis + FMP historical P/E comparison (key-metrics)</div>
+        </div>
+        <div class="tsec">
+          <div class="tlab"><span class="ico">🚪</span> THE EXIT — specific trigger that kills the thesis</div>
+          <p>${th.exit}</p>
+          <div class="src">Source: FMP real-time price + rule-based risk management</div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ─────────────────────────────────────────────
+// MAIN FLOW
+// ─────────────────────────────────────────────
+async function doRefresh(force = true) {
+  const key = getKey();
+  if (!key) { setError('Enter your Financial Modeling Prep API key above and click Save.'); return; }
+  if (busy) return;
+  busy = true;
+  setError('');
+  const btn = $('refreshBtn');
+  btn.classList.add('spinning'); btn.disabled = true;
+  try {
+    const stocks = await loadTheme(currentTheme, key, force);
+    currentData = stocks;
+    renderUniverse(stocks);
+    renderConviction(stocks);
+    renderThesis(stocks, currentTheme);
+    setStatus(`Updated ${new Date().toLocaleTimeString()} · ${stocks.length} stocks · ${currentTheme}`);
+  } catch (e) {
+    setError('Error: ' + e.message + ' — check your API key, or the free tier may be rate-limited (250 req/day).');
+    setStatus('Failed to load');
+  } finally {
+    setProgress(-1);
+    busy = false;
+    btn.classList.remove('spinning'); btn.disabled = false;
+  }
+}
+
+function selectTheme(theme) {
+  currentTheme = theme;
+  document.querySelectorAll('.theme-btn').forEach(b => b.classList.toggle('active', b.dataset.theme === theme));
+  if (getKey()) doRefresh(false);
+}
+
+// ─────────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────────
+(function init() {
+  const row = $('themeRow');
+  Object.keys(THEMES).forEach(th => {
+    const b = document.createElement('button');
+    b.className = 'theme-btn' + (th === currentTheme ? ' active' : '');
+    b.dataset.theme = th;
+    b.textContent = th;
+    b.onclick = () => selectTheme(th);
+    row.appendChild(b);
+  });
+  if (localStorage.getItem('fmp_key')) {
+    $('apiKey').placeholder = '✓ Key saved — click Refresh to load data';
+  }
+})();
+</script>
+</body>
+</html>
