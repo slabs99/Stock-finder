@@ -405,18 +405,11 @@ async function apiFetch(url) {
   return j;
 }
 
-async function getQuotes(tickers) {
-  const ck = 'q_' + currentTheme;
+// One call per stock: price + fundamentals via quoteSummary
+async function getStock(ticker) {
+  const ck = 'sd_' + ticker;
   const hit = cGet(ck); if (hit) return hit;
-  const data = await apiFetch(`/api/yahoo?action=quotes&symbols=${tickers.join(',')}`);
-  cSet(ck, data);
-  return data || {};
-}
-
-async function getFundamentals(ticker) {
-  const ck = 'f_' + ticker;
-  const hit = cGet(ck); if (hit) return hit;
-  const data = await apiFetch(`/api/yahoo?action=fundamentals&symbol=${ticker}`);
+  const data = await apiFetch(`/api/yahoo?action=stock&symbol=${ticker}`);
   cSet(ck, data);
   return data || {};
 }
@@ -425,10 +418,7 @@ async function getFundamentals(ticker) {
 // DATA ASSEMBLY
 // ─────────────────────────────────────────────
 function clearTheme(theme) {
-  (THEMES[theme]?.tickers || []).forEach(t => {
-    sessionStorage.removeItem('sf2_f_' + t);
-  });
-  sessionStorage.removeItem('sf2_q_' + theme);
+  (THEMES[theme]?.tickers || []).forEach(t => sessionStorage.removeItem('sf2_sd_' + t));
 }
 
 async function loadTheme(theme, force) {
@@ -436,65 +426,55 @@ async function loadTheme(theme, force) {
   const tickers = THEMES[theme].tickers;
   const descs   = THEMES[theme].desc;
 
-  setProgress(5);
-  setStatus('Fetching quotes…');
-  const quotes = await getQuotes(tickers);
-
   const stocks = [];
   for (let i = 0; i < tickers.length; i++) {
     const tk = tickers[i];
-    setProgress(10 + Math.round((i / tickers.length) * 85));
-    setStatus(`Fundamentals ${i+1}/${tickers.length} — ${tk}`);
+    setProgress(5 + Math.round((i / tickers.length) * 90));
+    setStatus(`Loading ${i+1}/${tickers.length} — ${tk}`);
 
-    const q = quotes[tk] || {};
-    let fund = {};
-    try { fund = await getFundamentals(tk); } catch (_) {}
+    let sd = {};
+    try { sd = await getStock(tk); } catch (_) {}
 
-    const fd = fund.financialData        || {};
-    const ds = fund.defaultKeyStatistics || {};
-    const isHistory = fund.incomeStatementHistory?.incomeStatementHistory || [];
+    const pr = sd.price              || {};
+    const su = sd.summaryDetail      || {};
+    const fd = sd.financialData      || {};
+    const ds = sd.defaultKeyStatistics || {};
+    const isHistory = sd.incomeStatementHistory?.incomeStatementHistory || [];
 
-    // Revenue YoY — prefer income statement history, fall back to revenueGrowth
-    const rev0 = isHistory[0]?.totalRevenue?.raw || 0;
-    const rev1 = isHistory[1]?.totalRevenue?.raw || 0;
-    const revenueGrowth = rev1 > 0 ? (rev0 - rev1) / rev1
-                        : (fd.revenueGrowth?.raw ?? null);
+    const price         = pr.regularMarketPrice?.raw        ?? fd.currentPrice?.raw        ?? 0;
+    const yearHigh      = su.fiftyTwoWeekHigh?.raw          ?? pr.fiftyTwoWeekHigh?.raw    ?? 0;
+    const priceChangePct= (pr.regularMarketChangePercent?.raw ?? 0) * 100;
+    const name          = pr.shortName || pr.longName || tk;
+    const marketCap     = pr.marketCap?.raw || su.marketCap?.raw || 0;
 
-    // ROE as proxy for ROIC (Yahoo doesn't expose ROIC directly)
-    const roic    = fd.returnOnEquity?.raw ?? ds.returnOnEquity?.raw ?? null;
+    const trailingPE    = su.trailingPE?.raw   ?? pr.trailingPE?.raw   ?? null;
+    const forwardPE     = su.forwardPE?.raw    ?? pr.forwardPE?.raw    ?? null;
+    const fwdPEOK       = (forwardPE != null && trailingPE != null) ? forwardPE < trailingPE : null;
 
-    // Free cash flow
-    const fcfVal  = fd.freeCashflow?.raw ?? null;
-    const fcfPos  = fcfVal != null ? fcfVal > 0 : null;
+    const roic          = fd.returnOnEquity?.raw ?? ds.returnOnEquity?.raw ?? null;
+    const fcfVal        = fd.freeCashflow?.raw   ?? null;
+    const fcfPos        = fcfVal != null ? fcfVal > 0 : null;
 
-    // Net Debt / EBITDA
-    const totalDebt = fd.totalDebt?.raw  || 0;
-    const totalCash = fd.totalCash?.raw  || 0;
-    const ebitda    = fd.ebitda?.raw     || 0;
-    const netDebt   = ebitda > 0 ? (totalDebt - totalCash) / ebitda : null;
+    const totalDebt     = fd.totalDebt?.raw || 0;
+    const totalCash     = fd.totalCash?.raw || 0;
+    const ebitda        = fd.ebitda?.raw    || 0;
+    const netDebt       = ebitda > 0 ? (totalDebt - totalCash) / ebitda : null;
 
-    // Price & discount
-    const price       = q.regularMarketPrice || fd.currentPrice?.raw || 0;
-    const yearHigh    = q.fiftyTwoWeekHigh   || 0;
-    const discount52w = yearHigh > 0 ? (yearHigh - price) / yearHigh : null;
-
-    // P/E — forward vs trailing
-    const trailingPE = q.trailingPE ?? null;
-    const forwardPE  = q.forwardPE  ?? null;
-    const fwdPEOK    = (forwardPE != null && trailingPE != null) ? forwardPE < trailingPE : null;
-
-    const name = q.shortName || q.longName || tk;
+    const rev0          = isHistory[0]?.totalRevenue?.raw || 0;
+    const rev1          = isHistory[1]?.totalRevenue?.raw || 0;
+    const revenueGrowth = rev1 > 0 ? (rev0 - rev1) / rev1 : (fd.revenueGrowth?.raw ?? null);
+    const discount52w   = yearHigh > 0 ? (yearHigh - price) / yearHigh : null;
 
     stocks.push({
       ticker: tk, name, desc: descs[tk] || '',
-      price, yearHigh, priceChangePct: q.regularMarketChangePercent || 0,
-      roic, fcfPos, fcfVal,
-      netDebt, revenueGrowth, discount52w,
+      price, yearHigh, priceChangePct,
+      roic, fcfPos, fcfVal, netDebt,
+      revenueGrowth, discount52w,
       trailingPE, forwardPE, fwdPEOK,
-      rev0, rev1, marketCap: q.marketCap || 0
+      rev0, rev1, marketCap
     });
 
-    if (i < tickers.length - 1) await new Promise(r => setTimeout(r, 60));
+    if (i < tickers.length - 1) await new Promise(r => setTimeout(r, 80));
   }
   setProgress(100);
   return stocks;
