@@ -145,7 +145,7 @@ tbody td{padding:9px 11px;font-size:13px;vertical-align:middle}
 
   <section>
     <div class="sec-title">&#x1F3AF; Conviction Score</div>
-    <div class="sec-sub">Ranked 0&ndash;100 &bull; Quality gates: ROIC&ge;15% &bull; Positive FCF &bull; Net Debt/EBITDA&lt;2x &bull; Revenue growth YoY &bull; Discount gates: 15%+ below 52w high &bull; Forward P/E below trailing</div>
+    <div class="sec-sub">Ranked 0&ndash;100 &bull; Quality gates: ROE&ge;15% &bull; Positive FCF &bull; Net Debt/EBITDA&lt;2x &bull; Revenue growth YoY &bull; Discount gates: 15%+ below 52w high &bull; Forward P/E below trailing</div>
     <div id="convWrap"><div class="empty">Load stocks to see conviction scores.</div></div>
   </section>
 
@@ -257,56 +257,44 @@ function cSet(k, d) {
   try { sessionStorage.setItem('sf2_' + k, JSON.stringify({d, t: Date.now()})); } catch {}
 }
 
-function clearTheme(theme) {
-  (THEMES[theme]?.tickers || []).forEach(t => {
-    sessionStorage.removeItem('sf2_km_' + t);
-    sessionStorage.removeItem('sf2_is_' + t);
-  });
-  sessionStorage.removeItem('sf2_q_' + theme);
-}
 
 // ─────────────────────────────────────────────
-// API  (proxied through /api/fmp — key stays server-side)
-// New FMP stable API: /stable/* with ?symbol= query params
+// API  (proxied through /api/yahoo — no API key needed)
 // ─────────────────────────────────────────────
 async function apiFetch(url) {
   const r = await fetch(url);
   const j = await r.json().catch(() => null);
-  if (!r.ok) throw new Error(`HTTP ${r.status} — ${j?.['Error Message'] || r.statusText}`);
-  if (j && j['Error Message']) throw new Error(j['Error Message']);
+  if (!r.ok) throw new Error(`HTTP ${r.status} — ${j?.error || r.statusText}`);
+  if (j?.error) throw new Error(j.error);
   return j;
 }
 
 async function getQuotes(tickers) {
   const ck = 'q_' + currentTheme;
   const hit = cGet(ck); if (hit) return hit;
-  const data = await apiFetch(`/api/fmp?path=batch-quote&symbols=${tickers.join(',')}`);
-  const map = {};
-  (Array.isArray(data) ? data : []).forEach(q => { map[q.symbol] = q; });
-  cSet(ck, map);
-  return map;
+  const data = await apiFetch(`/api/yahoo?action=quotes&symbols=${tickers.join(',')}`);
+  cSet(ck, data);
+  return data || {};
 }
 
-async function getKeyMetrics(ticker) {
-  const ck = 'km_' + ticker;
+async function getFundamentals(ticker) {
+  const ck = 'f_' + ticker;
   const hit = cGet(ck); if (hit) return hit;
-  // TTM metrics (roicTTM, freeCashFlowPerShareTTM, netDebtToEBITDATTM, peRatioTTM)
-  const data = await apiFetch(`/api/fmp?path=key-metrics-ttm&symbol=${ticker}`);
-  const r = Array.isArray(data) ? data : (data ? [data] : []);
-  cSet(ck, r); return r;
-}
-
-async function getIncome(ticker) {
-  const ck = 'is_' + ticker;
-  const hit = cGet(ck); if (hit) return hit;
-  const data = await apiFetch(`/api/fmp?path=income-statement&symbol=${ticker}&period=annual&limit=2`);
-  const r = Array.isArray(data) ? data : [];
-  cSet(ck, r); return r;
+  const data = await apiFetch(`/api/yahoo?action=fundamentals&symbol=${ticker}`);
+  cSet(ck, data);
+  return data || {};
 }
 
 // ─────────────────────────────────────────────
 // DATA ASSEMBLY
 // ─────────────────────────────────────────────
+function clearTheme(theme) {
+  (THEMES[theme]?.tickers || []).forEach(t => {
+    sessionStorage.removeItem('sf2_f_' + t);
+  });
+  sessionStorage.removeItem('sf2_q_' + theme);
+}
+
 async function loadTheme(theme, force) {
   if (force) clearTheme(theme);
   const tickers = THEMES[theme].tickers;
@@ -323,42 +311,54 @@ async function loadTheme(theme, force) {
     setStatus(`Fundamentals ${i+1}/${tickers.length} — ${tk}`);
 
     const q = quotes[tk] || {};
-    let km = [], is = [];
-    try {
-      [km, is] = await Promise.all([getKeyMetrics(tk), getIncome(tk)]);
-    } catch (_) {}
+    let fund = {};
+    try { fund = await getFundamentals(tk); } catch (_) {}
 
-    const km0 = km[0] || {};
-    const is0 = is[0] || {}, is1 = is[1] || {};
+    const fd = fund.financialData        || {};
+    const ds = fund.defaultKeyStatistics || {};
+    const isHistory = fund.incomeStatementHistory?.incomeStatementHistory || [];
 
-    const rev0 = is0.revenue || 0, rev1 = is1.revenue || 0;
-    const revenueGrowth = rev1 > 0 ? (rev0 - rev1) / rev1 : null;
+    // Revenue YoY — prefer income statement history, fall back to revenueGrowth
+    const rev0 = isHistory[0]?.totalRevenue?.raw || 0;
+    const rev1 = isHistory[1]?.totalRevenue?.raw || 0;
+    const revenueGrowth = rev1 > 0 ? (rev0 - rev1) / rev1
+                        : (fd.revenueGrowth?.raw ?? null);
 
-    // New stable API uses TTM suffix on key-metrics fields
-    const roic    = km0.roicTTM                  ?? km0.roic                  ?? null;
-    const fcfPS   = km0.freeCashFlowPerShareTTM   ?? km0.freeCashFlowPerShare   ?? null;
-    const netDebt = km0.netDebtToEBITDATTM        ?? km0.netDebtToEBITDA        ?? null;
-    const kmPE    = km0.peRatioTTM                ?? km0.peRatio                ?? null;
+    // ROE as proxy for ROIC (Yahoo doesn't expose ROIC directly)
+    const roic    = fd.returnOnEquity?.raw ?? ds.returnOnEquity?.raw ?? null;
 
-    const price       = q.price    || 0;
-    const yearHigh    = q.yearHigh || q['52WeekHigh'] || 0;
+    // Free cash flow
+    const fcfVal  = fd.freeCashflow?.raw ?? null;
+    const fcfPos  = fcfVal != null ? fcfVal > 0 : null;
+
+    // Net Debt / EBITDA
+    const totalDebt = fd.totalDebt?.raw  || 0;
+    const totalCash = fd.totalCash?.raw  || 0;
+    const ebitda    = fd.ebitda?.raw     || 0;
+    const netDebt   = ebitda > 0 ? (totalDebt - totalCash) / ebitda : null;
+
+    // Price & discount
+    const price       = q.regularMarketPrice || fd.currentPrice?.raw || 0;
+    const yearHigh    = q.fiftyTwoWeekHigh   || 0;
     const discount52w = yearHigh > 0 ? (yearHigh - price) / yearHigh : null;
-    const trailingPE  = q.pe ?? q.priceEarningsRatio ?? null;
-    // Gate: current PE lower than key-metrics TTM PE would be same data;
-    // use PE < 30 as a reasonable "not stretched" proxy when historical not available
-    const histPE  = null;
-    const fwdPEOK = (trailingPE != null) ? trailingPE < 30 : null;
+
+    // P/E — forward vs trailing
+    const trailingPE = q.trailingPE ?? null;
+    const forwardPE  = q.forwardPE  ?? null;
+    const fwdPEOK    = (forwardPE != null && trailingPE != null) ? forwardPE < trailingPE : null;
+
+    const name = q.shortName || q.longName || tk;
 
     stocks.push({
-      ticker: tk, name: q.name || tk, desc: descs[tk] || '',
-      price, yearHigh, priceChangePct: q.changesPercentage || 0,
-      roic, fcfPS, fcfPos: fcfPS != null ? fcfPS > 0 : null,
+      ticker: tk, name, desc: descs[tk] || '',
+      price, yearHigh, priceChangePct: q.regularMarketChangePercent || 0,
+      roic, fcfPos, fcfVal,
       netDebt, revenueGrowth, discount52w,
-      trailingPE, histPE, fwdPEOK,
+      trailingPE, forwardPE, fwdPEOK,
       rev0, rev1, marketCap: q.marketCap || 0
     });
 
-    if (i < tickers.length - 1) await new Promise(r => setTimeout(r, 75));
+    if (i < tickers.length - 1) await new Promise(r => setTimeout(r, 60));
   }
   setProgress(100);
   return stocks;
@@ -371,7 +371,7 @@ function score(s) {
   let n = 0;
   const g = {roic:false, fcf:false, debt:false, growth:false, d52:false, fpe:false};
   if (s.roic        != null && s.roic >= 0.15)          { n += 20; g.roic   = true; }
-  if (s.fcfPos      === true)                            { n += 20; g.fcf    = true; }
+  if (s.fcfPos === true)                                 { n += 20; g.fcf    = true; }
   if (s.netDebt     != null && s.netDebt < 2)            { n += 20; g.debt   = true; }
   if (s.revenueGrowth != null && s.revenueGrowth > 0)   { n += 20; g.growth = true; }
   if (s.discount52w != null && s.discount52w >= 0.15)   { n += 10; g.d52    = true; }
