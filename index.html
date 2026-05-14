@@ -435,13 +435,24 @@ async function loadTheme(theme, force) {
     let sd = {};
     try { sd = await getStock(tk); } catch (_) {}
 
+    // Retry once if price is missing (likely a rate-limit drop)
+    const hasPrice = d => !!(d?.price?.regularMarketPrice?.raw ?? d?.financialData?.currentPrice?.raw);
+    if (!hasPrice(sd)) {
+      await new Promise(r => setTimeout(r, 700));
+      try {
+        sessionStorage.removeItem('sf2_sd_' + tk);
+        const retry = await getStock(tk);
+        if (hasPrice(retry)) sd = retry;
+      } catch (_) {}
+    }
+
     const pr = sd.price              || {};
     const su = sd.summaryDetail      || {};
     const fd = sd.financialData      || {};
     const ds = sd.defaultKeyStatistics || {};
     const isHistory = sd.incomeStatementHistory?.incomeStatementHistory || [];
 
-    const price         = pr.regularMarketPrice?.raw        ?? fd.currentPrice?.raw        ?? 0;
+    const price = pr.regularMarketPrice?.raw ?? fd.currentPrice?.raw ?? 0;
     const yearHigh      = su.fiftyTwoWeekHigh?.raw          ?? pr.fiftyTwoWeekHigh?.raw    ?? 0;
     const priceChangePct= (pr.regularMarketChangePercent?.raw ?? 0) * 100;
     const name          = pr.shortName || pr.longName || tk;
@@ -474,7 +485,7 @@ async function loadTheme(theme, force) {
       rev0, rev1, marketCap
     });
 
-    if (i < tickers.length - 1) await new Promise(r => setTimeout(r, 80));
+    if (i < tickers.length - 1) await new Promise(r => setTimeout(r, 200));
   }
   setProgress(100);
   return stocks;
@@ -512,7 +523,7 @@ function buildThesis(s, rank, theme) {
   const roicS = s.roic != null ? (s.roic * 100).toFixed(1) + '%' : 'N/A';
   const revS  = s.revenueGrowth != null ? (s.revenueGrowth * 100).toFixed(1) + '%' : 'N/A';
 
-  const moat = `${s.ticker} scores ${sc}/100 (${t.label}) with a ROIC of ${roicS}`
+  const moat = `${s.ticker} scores ${sc}/100 (${t.label}) with a ROE of ${roicS}`
     + (g.fcf  ? ', positive free cash flow'  : ', negative or unavailable FCF')
     + (s.netDebt != null ? `, and net debt/EBITDA of ${fmtX(s.netDebt)}` : '')
     + `. ${g.roic && g.fcf
@@ -527,14 +538,14 @@ function buildThesis(s, rank, theme) {
         : 'Limited discount from the 52-week high reduces margin of safety.'}`;
 
   const catalyst = `Key near-term catalysts: ${SECTOR_CATALYSTS[theme] || 'sector-specific growth drivers'}.`
-    + (g.fpe && s.trailingPE && s.histPE
-        ? ` Current P/E of ${s.trailingPE.toFixed(1)}x is below the prior-year multiple of ${s.histPE.toFixed(1)}x — the market has already de-rated this name, opening the door to re-rating upside.`
+    + (g.fpe && s.forwardPE != null && s.trailingPE != null
+        ? ` Forward P/E of ${s.forwardPE.toFixed(1)}x is below the trailing multiple of ${s.trailingPE.toFixed(1)}x — earnings estimates imply growth that the market has not yet priced in, creating re-rating upside.`
         : ' Multiple expansion is not assumed; upside depends on earnings growth beating expectations.');
 
   const stop   = s.price > 0 ? (s.price * 0.80).toFixed(2) : 'N/A';
   const target = s.yearHigh  > 0 ? s.yearHigh.toFixed(2)      : 'N/A';
   const upside = d52 != null ? d52 + '%' : 'significant';
-  const exit   = `Bull target: recovery to 52-week high of $${target} (${upside} upside from current). Thesis breaks if: (1) revenue growth turns negative two consecutive quarters, (2) ROIC falls below 10%, or (3) the stock closes below $${stop} on elevated volume. Revisit FCF and debt levels at each earnings report.`;
+  const exit   = `Bull target: recovery to 52-week high of $${target} (${upside} upside from current). Thesis breaks if: (1) revenue growth turns negative two consecutive quarters, (2) ROE falls below 10%, or (3) the stock closes below $${stop} on elevated volume. Revisit FCF and debt levels at each earnings report.`;
 
   return {moat, drawdown, catalyst, exit, score: sc, tier: t};
 }
@@ -637,22 +648,22 @@ function renderThesis(stocks, theme) {
         <div class="tsec">
           <div class="tlab"><span class="ico">🏰</span> THE MOAT — what makes it durable?</div>
           <p>${th.moat}</p>
-          <div class="src">Source: FMP annual key-metrics — ROIC, FCF/share, Net Debt/EBITDA</div>
+          <div class="src">Source: Yahoo Finance — ROE, FCF, Net Debt/EBITDA</div>
         </div>
         <div class="tsec">
           <div class="tlab"><span class="ico">📉</span> THE DRAWDOWN — why is it on sale?</div>
           <p>${th.drawdown}</p>
-          <div class="src">Source: FMP real-time quote — 52-week high, trailing P/E</div>
+          <div class="src">Source: Yahoo Finance — 52-week high, trailing P/E</div>
         </div>
         <div class="tsec">
           <div class="tlab"><span class="ico">🚀</span> THE CATALYST — what unlocks upside in 12 months?</div>
           <p>${th.catalyst}</p>
-          <div class="src">Source: Sector thesis + FMP historical P/E comparison (key-metrics)</div>
+          <div class="src">Source: Sector thesis + Yahoo Finance forward/trailing P/E</div>
         </div>
         <div class="tsec">
           <div class="tlab"><span class="ico">🚪</span> THE EXIT — specific trigger that kills the thesis</div>
           <p>${th.exit}</p>
-          <div class="src">Source: FMP real-time price + rule-based risk management</div>
+          <div class="src">Source: Yahoo Finance real-time price + rule-based risk management</div>
         </div>
       </div>
     </div>`;
@@ -676,7 +687,7 @@ async function doRefresh(force = true) {
     renderThesis(stocks, currentTheme);
     setStatus(`Updated ${new Date().toLocaleTimeString()} · ${stocks.length} stocks · ${currentTheme}`);
   } catch (e) {
-    setError('Error: ' + e.message + ' — If this is your first deploy after adding the env var, go to Vercel → Deployments → Redeploy.');
+    setError('Error: ' + e.message);
     setStatus('Failed to load');
   } finally {
     setProgress(-1);
